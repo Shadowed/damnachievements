@@ -1,0 +1,6 @@
+## Interface: 30000
+## Title: Damn Achievements
+## Notes: Cleans up the achievement UI
+## Author: Mayen
+
+DamnAchievements.lua
