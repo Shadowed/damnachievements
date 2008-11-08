@@ -3,6 +3,12 @@ local blankFunc = function() end
 
 local DEFAULT_FRAME_HEIGHT = 64
 local TOTAL_MINI_ACHIEVEMENTS = 0
+local achievementShown = {}
+local searchName
+
+local L = {
+	["Search"] = "Search...",
+}
 
 function DA:Initialize()
 	local orig_AchievementButton_Expand = AchievementButton_Expand
@@ -48,42 +54,49 @@ function DA:Initialize()
 		self.description:SetHeight(0)
 	end
 
-	-- Fix the scrolling stuff, this is a quick hack, I'll improve on it later... maybe
-	--[[
 	orig_AchievementFrameAchievements_Update = AchievementFrameAchievements_Update
 	AchievementFrameAchievements_Update = function(...)
+		-- Reset the list of what we showed already
+		for k in pairs(achievementShown) do achievementShown[k] = nil end
+		
 		orig_AchievementFrameAchievements_Update(...)
+	end
 	
+	--[[
+	-- Fix the scrolling stuff, this is a quick hack, I'll improve on it later... maybe
+	orig_AchievementFrameAchievements_Update = AchievementFrameAchievements_Update
+	AchievementFrameAchievements_Update = function(...)
 		local category = achievementFunctions.selectedCategory
 		if( category == "summary" ) then
 			return
 		end
 
-		local scrollFrame = AchievementFrameAchievementsContainer
+		local scrollFrame = AchievementFrameAchievementsContainer		
 		local offset = HybridScrollFrame_GetOffset(scrollFrame)
 		local buttons = scrollFrame.buttons
 		local numAchievements, numCompleted = GetCategoryNumAchievements(category)
-		local numButtons = #(buttons)
 		local extraHeight = scrollFrame.largeButtonHeight or DEFAULT_FRAME_HEIGHT
 
 		local displayedHeight = 0
-		for i=1, numButtons do
-			displayedHeight = displayedHeight + buttons[i]:GetHeight()
+		for _, button in pairs(scrollFrame.buttons) do
+			if( button:IsVisible() ) then
+				displayedHeight = displayedHeight + button:GetHeight()
+			end
 		end
 
 		local totalHeight = numAchievements * DEFAULT_FRAME_HEIGHT
 		totalHeight = totalHeight + (extraHeight - DEFAULT_FRAME_HEIGHT)
+		
+		print(numAchievements, totalHeight, displayedHeight)
 
-		HybridScrollFrame_Update(scrollFrame, numAchievements, totalHeight, displayedHeight)
+		-- Now call the original
+		orig_AchievementFrameAchievements_Update(...)
 	end
 	
-	orig_AchievementButton_OnClick = AchievementButton_OnClick
-	AchievementButton_OnClick = function(self, ...)
-		orig_AchievementButton_OnClick(self, ...)
-		HybridScrollFrame_ExpandButton(AchievementFrameAchievementsContainer, ((self.index - 1) * DEFAULT_FRAME_HEIGHT), self:GetHeight());
-	end
+	-- Re-set functions so it uses the hooked one
+	AchievementFrameAchievementsContainer.update = AchievementFrameAchievements_Update
+	ACHIEVEMENT_FUNCTIONS.updateFunc = AchievementFrameAchievements_Update
 	]]
-	
 	
 	-- Restore the original height
 	local orig_AchievementButton_Collapse = AchievementButton_Collapse
@@ -97,14 +110,33 @@ function DA:Initialize()
 	-- So our global check thingy works
 	local orig_AchievementButton_DisplayAchievement = AchievementButton_DisplayAchievement
 	AchievementButton_DisplayAchievement = function(button, category, achievement, selectionID, ...)
+		-- In order to avoid having to redo the entire display code, we hack the search in this way
+		if( searchName ) then
+			local id, name, points, completed, month, day, year, description, flags, icon, rewardText = GetAchievementInfo(category, achievement)
+			if( achievementShown[id] or not name or not string.match(string.lower(name), searchName) ) then
+				button:Hide()
+				
+				-- Keep going until we run out of achievements
+				if( name ) then
+					return AchievementButton_DisplayAchievement(button, category, achievement + 1, selectionID, ...)
+				end
+				return
+			end
+			
+			-- Prevent the same achievement from showing up 5000 times
+			achievementShown[id] = true
+		end
+		
 		local result = orig_AchievementButton_DisplayAchievement(button, category, achievement, selectionID, ...)
 		
-		-- Set checked if it's being tracked + hide it if it's been completed
-		if( not button.completed ) then
-			button.customCheck:SetChecked((button.id == GetTrackedAchievement()))
-			button.customCheck:Show()
-		else
-			button.customCheck:Hide()
+		if( button.customCheck ) then
+			-- Set checked if it's being tracked + hide it if it's been completed
+			if( not button.completed ) then
+				button.customCheck:SetChecked((button.id == GetTrackedAchievement()))
+				button.customCheck:Show()
+			else
+				button.customCheck:Hide()
+			end
 		end
 		
 		-- Shift shield up if no reward, shift it down if there is
@@ -245,7 +277,28 @@ function DA:Initialize()
 			self:SetPoint("TOPLEFT", "$parentIcon", -1, -15)
 		end
 	end
+
+	--[[
+	frame.scrollBar.SetMinMaxValues = function(self, min, max)
+		getmetatable(self).__index.SetMinMaxValues(self, min, self.setMinMaxCap or max)
+	end
+
+	frame.scrollBar.SetValue = function(self, value)
+		if( self.setMinMaxCap and value > self.setMinMaxCap ) then value = self.setMinMaxCap end
+		getmetatable(self).__index.SetValue(self, value)
+	end
+	]]
 	
+	-- Create two new achievement rows quickly
+	local frame = AchievementFrameAchievementsContainer
+	for i=1, 1 do
+		local id = #(frame.buttons) + 1
+		local name = "AchievementFrameAchievementsContainerButton" .. id
+		local button = CreateFrame("Button", name, frame.scrollChild, "AchievementTemplate")
+		button:SetPoint("TOPLEFT", frame.buttons[id - 1], "BOTTOMLEFT", 0, -2)
+		table.insert(frame.buttons, button)
+	end
+		
 	-- Update all the buttons
 	local id = 1
 	while( true ) do
@@ -307,7 +360,7 @@ function DA:Initialize()
 		
 		frame.check.Show = blankFunc
 		frame.check:Hide()
-
+		
 		-- Add tracking check box for them all without having to select it
 		local check =  CreateFrame("CheckButton", name .. "CustomCheck", frame, "AchievementCheckButtonTemplate")
 		getglobal(check:GetName() .. "Text"):Hide()
@@ -322,7 +375,70 @@ function DA:Initialize()
 		-- Get basics setup
 		frame:Collapse()
 	end
+	
+	--[[
+	-- Setup search
+	local search = self:CreateSearch()
+	
+	-- We can't monitor the OnShow/OnHide events because they aren't consistant (It's stupid, I know)
+	orig_AchievementFrameBaseTab_OnClick = AchievementFrameBaseTab_OnClick
+	AchievementFrameBaseTab_OnClick = function(id, ...)
+		orig_AchievementFrameBaseTab_OnClick(id, ...)
+		
+		if( id == 1 ) then
+			search:Show()
+		else
+			search:ClearFocus()
+			search:Hide()
+		end
+	end
+	]]
 end
+
+-- Search
+local function searchInput(self)
+	if( self.searchText or self:GetText() == "" ) then
+		searchName = nil
+	else
+		searchName = string.lower(self:GetText())
+	end
+	
+	AchievementFrameAchievements_Update()
+end
+
+function DA:CreateSearch()
+	local search = CreateFrame("EditBox", "DASearchInput", AchievementFrameCategories, "InputBoxTemplate")
+	search:SetHeight(16)
+	search:SetWidth(184)
+	search:SetAutoFocus(false)
+	search:ClearAllPoints()
+	search:SetPoint("BOTTOMLEFT", AchievementFrameCategories, "BOTTOMLEFT", 9, 4)
+	search:SetFrameStrata("HIGH")
+	search:Hide()
+	
+	search.searchText = true
+	search:SetText(L["Search"])
+	search:SetTextColor(0.90, 0.90, 0.90, 0.80)
+	search:SetScript("OnTextChanged", searchInput)
+	search:SetScript("OnEditFocusGained", function(self)
+		if( self.searchText ) then
+			self.searchText = nil
+			self:SetText("")
+			self:SetTextColor(1, 1, 1, 1)
+		end
+	end)
+	
+	search:SetScript("OnEditFocusLost", function(self)
+		if( not self.searchText and string.trim(self:GetText()) == "" ) then
+			self.searchText = true
+			self:SetText(L["Search"])
+			self:SetTextColor(0.90, 0.90, 0.90, 0.80)
+		end
+	end)
+	
+	return search
+end
+
 
 
 local frame = CreateFrame("Frame")
