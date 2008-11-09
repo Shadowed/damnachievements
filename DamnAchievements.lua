@@ -60,50 +60,6 @@ function DA:Initialize()
 		self.description:SetHeight(0)
 	end
 	
-	-- So we can search things being lazy
-	orig_AchievementFrameAchievements_Update = AchievementFrameAchievements_Update
-	AchievementFrameAchievements_Update = function(...)
-		-- Reset the list of what we showed already
-		for k in pairs(achievementShown) do achievementShown[k] = nil end
-		
-		orig_AchievementFrameAchievements_Update(...)
-	end
-	
-	-- Fix the scrolling stuff, this is a quick hack, I'll improve on it later... maybe
-	--[[
-	orig_AchievementFrameAchievements_Update = AchievementFrameAchievements_Update
-	AchievementFrameAchievements_Update = function(...)
-		local category = achievementFunctions.selectedCategory
-		if( category == "summary" ) then
-			return
-		end
-
-		local scrollFrame = AchievementFrameAchievementsContainer		
-		local offset = HybridScrollFrame_GetOffset(scrollFrame)
-		local buttons = scrollFrame.buttons
-		local numAchievements, numCompleted = GetCategoryNumAchievements(category)
-		local extraHeight = scrollFrame.largeButtonHeight or DEFAULT_FRAME_HEIGHT
-
-		local displayedHeight = 0
-		for _, button in pairs(scrollFrame.buttons) do
-			if( button:IsVisible() ) then
-				displayedHeight = displayedHeight + button:GetHeight()
-			end
-		end
-
-		local totalHeight = numAchievements * DEFAULT_FRAME_HEIGHT
-		totalHeight = totalHeight + (extraHeight - DEFAULT_FRAME_HEIGHT)
-		
-		print(numAchievements, totalHeight, displayedHeight)
-
-		-- Now call the original
-		orig_AchievementFrameAchievements_Update(...)
-	end]]
-	
-	-- Re-set functions so it uses the hooked one
-	AchievementFrameAchievementsContainer.update = AchievementFrameAchievements_Update
-	ACHIEVEMENT_FUNCTIONS.updateFunc = AchievementFrameAchievements_Update
-	
 	-- Restore the original height
 	local orig_AchievementButton_Collapse = AchievementButton_Collapse
 	AchievementButton_Collapse = function(self)
@@ -113,26 +69,9 @@ function DA:Initialize()
 		self:SetHeight(DEFAULT_FRAME_HEIGHT)
 	end
 	
-	-- So our global check thingy works
+	-- Our custom changes things
 	local orig_AchievementButton_DisplayAchievement = AchievementButton_DisplayAchievement
 	AchievementButton_DisplayAchievement = function(button, category, achievement, selectionID, ...)
-		-- In order to avoid having to redo the entire display code, we hack the search in this way, I'm fairly happy with it
-		if( searchName ) then
-			local id, name, points, completed, month, day, year, description, flags, icon, rewardText = GetAchievementInfo(category, achievement)
-			if( achievementShown[id] or not name or not string.match(string.lower(name), searchName) ) then
-				button:Hide()
-				
-				-- Keep going until we run out of achievements
-				if( name ) then
-					return AchievementButton_DisplayAchievement(button, category, achievement + 1, selectionID, ...)
-				end
-				return
-			end
-			
-			-- Prevent the same achievement from showing up 5000 times
-			achievementShown[id] = true
-		end
-		
 		-- Call original + save results
 		local result = orig_AchievementButton_DisplayAchievement(button, category, achievement, selectionID, ...)
 		
@@ -167,7 +106,7 @@ function DA:Initialize()
 		-- Reset flags
 		local objectives = AchievementFrameAchievementsObjectives
 
-		-- Level 70 achievements where it has multiple for level 10/20/30/40/50/6
+		-- Level 70 achievements where it has multiple for level 10/20/30/40/50/60
 		if( completed and GetPreviousAchievement(id) ) then
 			objectives:ClearAllPoints()
 			objectives:SetPoint("TOP", (-3 * TOTAL_MINI_ACHIEVEMENTS), -30 - button.description:GetStringHeight())
@@ -246,29 +185,6 @@ function DA:Initialize()
 		TOTAL_MINI_ACHIEVEMENTS = id - 1
 	end
 	
-	-- Identify what we're showing to make this less of a horrible logic bitch
-	--[[
-	orig_AchievementObjectives_DisplayCriteria = orig_AchievementObjectives_DisplayCriteria or AchievementObjectives_DisplayCriteria
-	AchievementObjectives_DisplayCriteria = function(objectives, id, ...)
-		orig_AchievementObjectives_DisplayCriteria(objectives, id, ...)
-		
-		if( not id ) then
-			return
-		end
-
-		for i=1, GetAchievementNumCriteria(id) do	
-			local criteriaString, criteriaType, completed, quantity, reqQuantity, charName, flags, assetID, quantityString = GetAchievementCriteriaInfo(id, i)
-			if ( criteriaType == CRITERIA_TYPE_ACHIEVEMENT and assetID ) then
-				objectives.hasMetaTypes = true
-			elseif( bit.band(flags, ACHIEVEMENT_CRITERIA_PROGRESS_BAR) == ACHIEVEMENT_CRITERIA_PROGRESS_BAR ) then
-				objectives.hasProgressTypes = true		
-			else
-				objectives.hasTextTypes = true		
-			end
-		end
-	end
-	]]
-	
 	-- Ripped out of the achievement UI, but modified for the smaller shield size
 	local function SetText(self, text)
 		getmetatable(self).__index.SetText(self, text)
@@ -282,17 +198,6 @@ function DA:Initialize()
 			self:SetPoint("TOPLEFT", "$parentIcon", -1, -15)
 		end
 	end
-
-	--[[
-	frame.scrollBar.SetMinMaxValues = function(self, min, max)
-		getmetatable(self).__index.SetMinMaxValues(self, min, self.setMinMaxCap or max)
-	end
-
-	frame.scrollBar.SetValue = function(self, value)
-		if( self.setMinMaxCap and value > self.setMinMaxCap ) then value = self.setMinMaxCap end
-		getmetatable(self).__index.SetValue(self, value)
-	end
-	]]
 	
 	-- Create two new achievement rows quickly
 	local frame = AchievementFrameAchievementsContainer
@@ -305,13 +210,7 @@ function DA:Initialize()
 	end
 		
 	-- Update all the buttons
-	local id = 1
-	while( true ) do
-		local name = "AchievementFrameAchievementsContainerButton" .. id
-		local frame = getglobal(name)
-		if( not frame ) then break end
-		id = id + 1
-		
+	for _, frame in pairs(frame.buttons) do
 		-- Re-set the API calls so it uses our new versions
 		frame.Collapse = AchievementButton_Collapse
 		frame.Expand = AchievementButton_Expand
@@ -343,7 +242,7 @@ function DA:Initialize()
 		frame.description:SetPoint("TOP", frame, "TOP", 0, -25)
 		
 		-- Reduce the background behind the achievement name
-		local background = getglobal(name .. "TitleBackground")
+		local background = getglobal(frame:GetName() .. "TitleBackground")
 		background:SetHeight(18)
 		
 		-- Shift label to fit the reduced background + reduce font size slightly
@@ -352,7 +251,7 @@ function DA:Initialize()
 		frame.label:SetFont((frame.label:GetFont()), 13)
 		
 		-- Reduce background behind the achievement reward (if any)
-		local background = getglobal(name.. "RewardBackground")
+		local background = getglobal(frame:GetName() .. "RewardBackground")
 		background:SetHeight(18)
 
 		-- Shift label to fit new size
@@ -367,7 +266,7 @@ function DA:Initialize()
 		frame.check:Hide()
 		
 		-- Add tracking check box for them all without having to select it
-		local check =  CreateFrame("CheckButton", name .. "CustomCheck", frame, "AchievementCheckButtonTemplate")
+		local check =  CreateFrame("CheckButton", frame:GetName() .. "CustomCheck", frame, "AchievementCheckButtonTemplate")
 		getglobal(check:GetName() .. "Text"):Hide()
 
 		check:SetPoint("TOPLEFT", frame, "TOPLEFT", 70, -3)
@@ -380,69 +279,7 @@ function DA:Initialize()
 		-- Get basics setup
 		frame:Collapse()
 	end
-
-	-- Setup search
-	local search = self:CreateSearch()
-	
-	-- We can't monitor the OnShow/OnHide events because they aren't consistant (It's stupid, I know)
-	orig_AchievementFrameBaseTab_OnClick = AchievementFrameBaseTab_OnClick
-	AchievementFrameBaseTab_OnClick = function(id, ...)
-		orig_AchievementFrameBaseTab_OnClick(id, ...)
-		
-		if( id == 1 ) then
-			search:Show()
-		else
-			search:ClearFocus()
-			search:Hide()
-		end
-	end
 end
-
--- Search
-local function searchInput(self)
-	if( self.searchText or self:GetText() == "" ) then
-		searchName = nil
-	else
-		searchName = string.lower(self:GetText())
-	end
-	
-	AchievementFrameAchievements_Update()
-end
-
-function DA:CreateSearch()
-	local search = CreateFrame("EditBox", "DASearchInput", AchievementFrameCategories, "InputBoxTemplate")
-	search:SetHeight(16)
-	search:SetWidth(184)
-	search:SetAutoFocus(false)
-	search:ClearAllPoints()
-	search:SetPoint("BOTTOMLEFT", AchievementFrameCategories, "BOTTOMLEFT", 9, 4)
-	search:SetFrameStrata("HIGH")
-	search:Hide()
-	
-	search.searchText = true
-	search:SetText(L["Search"])
-	search:SetTextColor(0.90, 0.90, 0.90, 0.80)
-	search:SetScript("OnTextChanged", searchInput)
-	search:SetScript("OnEditFocusGained", function(self)
-		if( self.searchText ) then
-			self.searchText = nil
-			self:SetText("")
-			self:SetTextColor(1, 1, 1, 1)
-		end
-	end)
-	
-	search:SetScript("OnEditFocusLost", function(self)
-		if( not self.searchText and string.trim(self:GetText()) == "" ) then
-			self.searchText = true
-			self:SetText(L["Search"])
-			self:SetTextColor(0.90, 0.90, 0.90, 0.80)
-		end
-	end)
-	
-	return search
-end
-
-
 
 local frame = CreateFrame("Frame")
 frame:RegisterEvent("ADDON_LOADED")
