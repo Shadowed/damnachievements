@@ -13,6 +13,12 @@ local L = {
 function DA:Initialize()
 	local orig_AchievementButton_Expand = AchievementButton_Expand
 	AchievementButton_Expand = function(self, height, ...)
+		if( not self.collapsed ) then
+			orig_AchievementButton_Expand(self, height, ...)
+			return
+		end
+		
+		-- Start off reducing it by 10, since we're reducing the default height by 20, 84 -> 64
 		height = height - 10
 		
 		-- Mini achievements aren't as high now since we use 7 per a row, not 6
@@ -53,7 +59,8 @@ function DA:Initialize()
 		-- Increase description size
 		self.description:SetHeight(0)
 	end
-
+	
+	-- So we can search things being lazy
 	orig_AchievementFrameAchievements_Update = AchievementFrameAchievements_Update
 	AchievementFrameAchievements_Update = function(...)
 		-- Reset the list of what we showed already
@@ -62,8 +69,8 @@ function DA:Initialize()
 		orig_AchievementFrameAchievements_Update(...)
 	end
 	
-	--[[
 	-- Fix the scrolling stuff, this is a quick hack, I'll improve on it later... maybe
+	--[[
 	orig_AchievementFrameAchievements_Update = AchievementFrameAchievements_Update
 	AchievementFrameAchievements_Update = function(...)
 		local category = achievementFunctions.selectedCategory
@@ -91,12 +98,11 @@ function DA:Initialize()
 
 		-- Now call the original
 		orig_AchievementFrameAchievements_Update(...)
-	end
+	end]]
 	
 	-- Re-set functions so it uses the hooked one
 	AchievementFrameAchievementsContainer.update = AchievementFrameAchievements_Update
 	ACHIEVEMENT_FUNCTIONS.updateFunc = AchievementFrameAchievements_Update
-	]]
 	
 	-- Restore the original height
 	local orig_AchievementButton_Collapse = AchievementButton_Collapse
@@ -110,7 +116,7 @@ function DA:Initialize()
 	-- So our global check thingy works
 	local orig_AchievementButton_DisplayAchievement = AchievementButton_DisplayAchievement
 	AchievementButton_DisplayAchievement = function(button, category, achievement, selectionID, ...)
-		-- In order to avoid having to redo the entire display code, we hack the search in this way
+		-- In order to avoid having to redo the entire display code, we hack the search in this way, I'm fairly happy with it
 		if( searchName ) then
 			local id, name, points, completed, month, day, year, description, flags, icon, rewardText = GetAchievementInfo(category, achievement)
 			if( achievementShown[id] or not name or not string.match(string.lower(name), searchName) ) then
@@ -127,16 +133,15 @@ function DA:Initialize()
 			achievementShown[id] = true
 		end
 		
+		-- Call original + save results
 		local result = orig_AchievementButton_DisplayAchievement(button, category, achievement, selectionID, ...)
 		
-		if( button.customCheck ) then
-			-- Set checked if it's being tracked + hide it if it's been completed
-			if( not button.completed ) then
-				button.customCheck:SetChecked((button.id == GetTrackedAchievement()))
-				button.customCheck:Show()
-			else
-				button.customCheck:Hide()
-			end
+		-- Set checked if it's being tracked + hide it if it's been completed
+		if( not button.completed ) then
+			button.customCheck:SetChecked((button.id == GetTrackedAchievement()))
+			button.customCheck:Show()
+		else
+			button.customCheck:Hide()
 		end
 		
 		-- Shift shield up if no reward, shift it down if there is
@@ -375,8 +380,7 @@ function DA:Initialize()
 		-- Get basics setup
 		frame:Collapse()
 	end
-	
-	--[[
+
 	-- Setup search
 	local search = self:CreateSearch()
 	
@@ -392,7 +396,6 @@ function DA:Initialize()
 			search:Hide()
 		end
 	end
-	]]
 end
 
 -- Search
