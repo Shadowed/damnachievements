@@ -3,21 +3,15 @@ local blankFunc = function() end
 
 local DEFAULT_FRAME_HEIGHT = 64
 local TOTAL_MINI_ACHIEVEMENTS = 0
-local achievementShown = {}
-local searchName
-
-local L = {
-	["Search"] = "Search...",
-}
 
 function DA:Initialize()
+	-- Removes the red border on completed achievements, it's obvious enough already they are completed
+	ACHIEVEMENTUI_REDBORDER_R = 0.5
+	ACHIEVEMENTUI_REDBORDER_G = 0.5
+	ACHIEVEMENTUI_REDBORDER_B = 0.5
+
 	local orig_AchievementButton_Expand = AchievementButton_Expand
 	AchievementButton_Expand = function(self, height, ...)
-		if( not self.collapsed ) then
-			orig_AchievementButton_Expand(self, height, ...)
-			return
-		end
-		
 		-- Start off reducing it by 10, since we're reducing the default height by 20, 84 -> 64
 		height = height - 10
 		
@@ -44,20 +38,37 @@ function DA:Initialize()
 			height = height - 10
 			
 			-- Only one line of text, reduce it a bit more
-			if( math.floor(self.description:GetStringHeight()) <= 10 ) then
+			if( self.reward:IsVisible() and math.floor(self.description:GetStringHeight()) <= 10 ) then
 				height = height - 10
 			end
 
+   		-- For achievements like The Immortal with 3 lines of text, no other criteria, and a reward
+   		-- we only show two lines of text in this case, so we do a fake expand to make it show the rest when selected
+   		elseif( math.floor(self.hiddenDescription:GetHeight()) >= 25 ) then
+   			height = height + 10
+		
    		-- Single line text achievements don't need as much room
    		elseif( self.reward:IsVisible() and math.floor(self.description:GetStringHeight()) <= 10 ) then
    			height = height - 15
    		end
-
-		-- Subtract 25 so it matches our height reducations
+   		
 		orig_AchievementButton_Expand(self, height, ...)
 
 		-- Increase description size
 		self.description:SetHeight(0)
+	end
+	
+	-- Expandy
+	-- I'm not happy with this solution, but if I hook this I can only need to do an additional 4 lines of code
+	-- instead of having to rewrite the AchievementFrameAchievements_Update function
+	orig_HybridScrollFrame_ExpandButton = HybridScrollFrame_ExpandButton
+	HybridScrollFrame_ExpandButton = function(self, offset, height, ...)
+		if( self == AchievementFrameAchievementsContainer ) then
+			offset = (offset / ACHIEVEMENTBUTTON_COLLAPSEDHEIGHT) * DEFAULT_FRAME_HEIGHT
+			height = ACHIEVEMENTBUTTON_COLLAPSEDHEIGHT
+		end
+
+		orig_HybridScrollFrame_ExpandButton(self, offset, height, ...)
 	end
 	
 	-- Restore the original height
@@ -65,7 +76,7 @@ function DA:Initialize()
 	AchievementButton_Collapse = function(self)
 		orig_AchievementButton_Collapse(self)
 		
-		self.description:SetHeight(self.reward:IsVisible() and 30 or 0)
+		-- Resize the container to default
 		self:SetHeight(DEFAULT_FRAME_HEIGHT)
 	end
 	
@@ -75,8 +86,9 @@ function DA:Initialize()
 		-- Call original + save results
 		local result = orig_AchievementButton_DisplayAchievement(button, category, achievement, selectionID, ...)
 		
-		-- Set checked if it's being tracked + hide it if it's been completed
-		if( not button.completed ) then
+		-- Show the check button if it's not completed, or if it was tracked but it's now completed
+		-- (So they can uncheck it of course)
+		if( not button.completed or button.id == GetTrackedAchievement() ) then
 			button.customCheck:SetChecked((button.id == GetTrackedAchievement()))
 			button.customCheck:Show()
 		else
@@ -91,9 +103,15 @@ function DA:Initialize()
 		button.icon:ClearAllPoints()
 		button.icon:SetPoint("TOPLEFT", button, "TOPLEFT", 8, -7)
 		
-		-- Moar room
-		button.description:SetWidth(360)
-		
+		-- Reset size if it's collapsed
+		if( selectionID ~= (GetAchievementInfo(category, achievement)) ) then
+			button.description:SetWidth(360)
+			button.description:SetHeight(button.reward:IsVisible() and 25 or 0)
+
+			button.hiddenDescription:SetWidth(360)
+			button.hiddenDescription:SetHeight(0)
+		end
+				
 		return result
 	end
 	
@@ -129,8 +147,18 @@ function DA:Initialize()
 				objectives:SetPoint("TOPLEFT", button, "TOPLEFT", 60, -35 - (button.description:GetStringHeight()))
 			end
 
-			-- For some stupid fucking reason, we have to set the width here or it bugs out
+			-- For some odd reason, we have to set the width here or it bugs out
 			objectives:SetWidth(1)
+		
+		-- Fakes it so it'll actually expand the frame. This is for something with a reward + to much text, like The Immortal
+		elseif( button.reward:IsVisible() and math.floor(button.hiddenDescription:GetHeight()) > 20 ) then
+			height = height + 1
+		end
+		
+		-- Give the user a visual queue that the frame was clicked on, even if it doesn't resize
+		if( height == 0 ) then
+			getglobal(button:GetName() .. "Background"):SetTexCoord(0, 1, math.max(0, 1 - (button:GetHeight() / 256)), 1)
+			getglobal(button:GetName() .. "Glow"):SetTexCoord(0, 1, 0, (self:GetHeight() + 5) / 128)
 		end
 		
 		return height
@@ -184,8 +212,9 @@ function DA:Initialize()
 		objectives:SetHeight(math.ceil(id / 7) * ACHIEVEMENTUI_PROGRESSIVEHEIGHT)
 		TOTAL_MINI_ACHIEVEMENTS = id - 1
 	end
-	
+		
 	-- Ripped out of the achievement UI, but modified for the smaller shield size
+	-- Clever little solution from Blizzard to center text
 	local function SetText(self, text)
 		getmetatable(self).__index.SetText(self, text)
 		local width = self:GetStringWidth()
@@ -199,7 +228,7 @@ function DA:Initialize()
 		end
 	end
 	
-	-- Create two new achievement rows quickly
+	-- Create two new achievement rows quickly so we don't have blank space due to our reduced size
 	local frame = AchievementFrameAchievementsContainer
 	for i=1, 1 do
 		local id = #(frame.buttons) + 1
@@ -285,7 +314,8 @@ local frame = CreateFrame("Frame")
 frame:RegisterEvent("ADDON_LOADED")
 frame:SetScript("OnEvent", function(self, event, addon)
 	if( IsAddOnLoaded("Blizzard_AchievementUI") ) then
-		DA:Initialize()
 		self:UnregisterAllEvents()
+
+		DA:Initialize()
 	end
 end)
