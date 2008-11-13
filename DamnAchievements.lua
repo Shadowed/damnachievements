@@ -61,11 +61,14 @@ function DA:Initialize()
 	-- Expandy
 	-- I'm not happy with this solution, but if I hook this I can only need to do an additional 4 lines of code
 	-- instead of having to rewrite the AchievementFrameAchievements_Update function
-	orig_HybridScrollFrame_ExpandButton = HybridScrollFrame_ExpandButton
+	local orig_HybridScrollFrame_ExpandButton = HybridScrollFrame_ExpandButton
 	HybridScrollFrame_ExpandButton = function(self, offset, height, ...)
 		if( self == AchievementFrameAchievementsContainer ) then
 			offset = (offset / ACHIEVEMENTBUTTON_COLLAPSEDHEIGHT) * DEFAULT_FRAME_HEIGHT
-			height = ACHIEVEMENTBUTTON_COLLAPSEDHEIGHT
+			
+			-- If the height is equaled to our *new* collapsed height, set it to the *default* height
+			-- If it's not, set it to the *real* frame height
+			height = height == DEFAULT_FRAME_HEIGHT and ACHIEVEMENTBUTTON_COLLAPSEDHEIGHT or height
 		end
 
 		orig_HybridScrollFrame_ExpandButton(self, offset, height, ...)
@@ -79,7 +82,7 @@ function DA:Initialize()
 		-- Resize the container to default
 		self:SetHeight(DEFAULT_FRAME_HEIGHT)
 	end
-	
+			
 	-- Our custom changes things
 	local orig_AchievementButton_DisplayAchievement = AchievementButton_DisplayAchievement
 	AchievementButton_DisplayAchievement = function(button, category, achievement, selectionID, ...)
@@ -104,24 +107,26 @@ function DA:Initialize()
 		button.icon:SetPoint("TOPLEFT", button, "TOPLEFT", 8, -7)
 		
 		-- Reset size if it's collapsed
-		if( selectionID ~= (GetAchievementInfo(category, achievement)) ) then
+		if( selectionID ~= button.id ) then
 			button.description:SetWidth(360)
 			button.description:SetHeight(button.reward:IsVisible() and 25 or 0)
 
 			button.hiddenDescription:SetWidth(360)
 			button.hiddenDescription:SetHeight(0)
+			button:SetBackdropBorderColor(0.5, 0.5, 0.5, 1.0)
+		else
+			button:SetBackdropBorderColor(1.0, 0.15, 0.05, 1.0)
 		end
 				
 		return result
 	end
 	
 	-- More code ripped out of the achievement UI, modified to keep the objective stuff working right
-	orig_AchievementButton_DisplayObjectives = AchievementButton_DisplayObjectives
+	local orig_AchievementButton_DisplayObjectives = AchievementButton_DisplayObjectives
 	AchievementButton_DisplayObjectives = function(button, id, completed, ...)
 		-- Call the original one and save the height
 		local height = orig_AchievementButton_DisplayObjectives(button, id, completed, ...)
 		
-		-- Reset flags
 		local objectives = AchievementFrameAchievementsObjectives
 
 		-- Level 70 achievements where it has multiple for level 10/20/30/40/50/60
@@ -166,7 +171,7 @@ function DA:Initialize()
 	
 	-- Fix the cliping issue with progress bar text
 	local fixedProgress = {}
-	orig_AchievementButton_GetProgressBar = AchievementButton_GetProgressBar
+	local orig_AchievementButton_GetProgressBar = AchievementButton_GetProgressBar
 	AchievementButton_GetProgressBar = function(index, ...)
 		local frame = orig_AchievementButton_GetProgressBar(index, ...)
 		if( not fixedProgress[frame] ) then
@@ -178,7 +183,7 @@ function DA:Initialize()
 	end
 	
 	-- Reset the criteria tooltips to prevent old ones from other achievements from showing
-	orig_AchievementButton_GetMiniAchievement = AchievementButton_GetMiniAchievement
+	local orig_AchievementButton_GetMiniAchievement = AchievementButton_GetMiniAchievement
 	AchievementButton_GetMiniAchievement = function(index, ...)
 		local frame = orig_AchievementButton_GetMiniAchievement(index, ...)
 		if( frame.numCriteria ) then
@@ -191,7 +196,7 @@ function DA:Initialize()
 	end
 	
 	-- Reposition the mini achievements like Level 70 so they use 7 icons per a row instead of 6 (plenty of space for this)
-	orig_AchievementObjectives_DisplayProgressiveAchievement = AchievementObjectives_DisplayProgressiveAchievement
+	local orig_AchievementObjectives_DisplayProgressiveAchievement = AchievementObjectives_DisplayProgressiveAchievement
 	AchievementObjectives_DisplayProgressiveAchievement = function(objectives, id)
 		orig_AchievementObjectives_DisplayProgressiveAchievement(objectives, id)
 		
@@ -212,6 +217,25 @@ function DA:Initialize()
 		objectives:SetHeight(math.ceil(id / 7) * ACHIEVEMENTUI_PROGRESSIVEHEIGHT)
 		TOTAL_MINI_ACHIEVEMENTS = id - 1
 	end
+	
+	-- Annd restore it once we leave
+	local function OnLeave(self)
+		if( not MouseIsOver(self) ) then
+			if( not self.selected ) then
+				self:SetBackdropBorderColor(0.5, 0.5, 0.5, 1.0)
+			else
+				self:SetBackdropBorderColor(1.0, 0.15, 0.05, 1.0)
+			end
+		end
+	end
+	
+	-- If we mouse over a selected frame, reset the border so you can see that you mouse overed it
+	local function OnEnter(self)
+		if( self.selected ) then
+			self:SetBackdropBorderColor(0.5, 0.5, 0.5, 1.0)
+		end
+	end	
+
 		
 	-- Ripped out of the achievement UI, but modified for the smaller shield size
 	-- Clever little solution from Blizzard to center text
@@ -244,6 +268,10 @@ function DA:Initialize()
 		frame.Collapse = AchievementButton_Collapse
 		frame.Expand = AchievementButton_Expand
 		frame.shield.points.SetText = SetText
+		
+		-- Hook OnEnter/OnLeave for our color change
+		frame:HookScript("OnEnter", OnEnter)
+		frame:HookScript("OnLEave", OnLeave)
 
 		-- Reduce shield size
 		frame.shield:SetWidth(50)
