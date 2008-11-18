@@ -130,7 +130,7 @@ function DA:Initialize()
 		local objectives = AchievementFrameAchievementsObjectives
 
 		-- Level 70 achievements where it has multiple for level 10/20/30/40/50/60
-		if( completed and GetPreviousAchievement(id) ) then
+		if( id and completed and GetPreviousAchievement(id) ) then
 			objectives:ClearAllPoints()
 			objectives:SetPoint("TOP", (-3 * TOTAL_MINI_ACHIEVEMENTS), -30 - button.description:GetStringHeight())
 		
