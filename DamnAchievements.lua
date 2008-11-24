@@ -4,54 +4,55 @@ local blankFunc = function() end
 local DEFAULT_FRAME_HEIGHT = 64
 local TOTAL_MINI_ACHIEVEMENTS = 0
 
+--[[
+	Default scroll bar implementation
+	
+	If you scroll to the very bottom, and you expand an achievement it moves everything up
+	If you scroll to the very top and expand an achievement, it moves everything down
+	If you're not completely at the bottom, and you expand an achievement it moves everything down
+]]
+
 function DA:Initialize()
 	-- Removes the red border on completed achievements, it's obvious enough already they are completed
 	ACHIEVEMENTUI_REDBORDER_R = 0.5
 	ACHIEVEMENTUI_REDBORDER_G = 0.5
 	ACHIEVEMENTUI_REDBORDER_B = 0.5
+	
+	ACHIEVEMENTBUTTON_COLLAPSEDHEIGHT = 64
 
 	local orig_AchievementButton_Expand = AchievementButton_Expand
 	AchievementButton_Expand = function(self, height, ...)
-		-- Start off reducing it by 10, since we're reducing the default height by 20, 84 -> 64
-		height = height - 10
-		
-		-- Mini achievements aren't as high now since we use 7 per a row, not 6
-		if( AchievementFrameMiniAchievement1 and AchievementFrameMiniAchievement1:IsVisible() ) then
-			height = height - 10
-			
-			if( TOTAL_MINI_ACHIEVEMENTS >= 7 ) then
-				height = height - 45
-			elseif( self.reward:IsVisible() ) then
-				height = height - 5
-			end
-
 		-- Progress bar achievements don't need any extra height if they are only a line of text + no reward
-		elseif( AchievementFrameProgressBar1 and AchievementFrameProgressBar1:IsVisible() and math.floor(self.description:GetStringHeight()) <= 10 ) then
+		if( AchievementFrameProgressBar1 and AchievementFrameProgressBar1:IsVisible() and math.floor(self.description:GetStringHeight()) <= 10 ) then
 			height = DEFAULT_FRAME_HEIGHT
 			
 			if( self.reward:IsVisible() ) then
 				height = height + 25
 			end
 		
-		-- Meta achievements
-		elseif( AchievementFrameMeta1 and AchievementFrameMeta1:IsVisible() ) then
-			height = height - 10
-			
-			-- Only one line of text, reduce it a bit more
-			if( self.reward:IsVisible() and math.floor(self.description:GetStringHeight()) <= 10 ) then
-				height = height - 10
-			end
-
-   		-- For achievements like The Immortal with 3 lines of text, no other criteria, and a reward
-   		-- we only show two lines of text in this case, so we do a fake expand to make it show the rest when selected
-   		elseif( math.floor(self.hiddenDescription:GetHeight()) >= 25 ) then
-   			height = height + 10
+		-- Mini achievements, hit Level 80, Mini-pet achievements, etc
+		elseif( AchievementFrameMiniAchievement1 and AchievementFrameMiniAchievement1:IsVisible() ) then
 		
-   		-- Single line text achievements don't need as much room
-   		elseif( self.reward:IsVisible() and math.floor(self.description:GetStringHeight()) <= 10 ) then
-   			height = height - 15
-   		end
-   		
+		-- Text achievements, Higher Learning, Well Read
+		elseif( AchievementFrameCriteria1 and AchievementFrameCriteria1:IsVisible() ) then
+			if( self.reward:IsVisible() ) then
+				height = height + 10
+			end
+		
+		-- Meta achievements, Glory of the Hero, etc
+		elseif( AchievementFrameMeta1 and AchievementFrameMeta1:IsVisible() ) then
+			local rows = math.ceil(AchievementFrameAchievementsObjectives:GetHeight() / ACHIEVEMENTBUTTON_CRITERIAROWHEIGHT)
+			rows = rows / 2
+			
+			height = height - AchievementFrameAchievementsObjectives:GetHeight()
+			height = math.floor(height + (rows * 28.5))
+
+		-- For achievements like The Immortal with 3 lines of text, no other criteria, and a reward
+		-- we only show two lines of text in this case, so we do a fake expand to make it show the rest when selected
+		elseif( math.floor(self.hiddenDescription:GetHeight()) >= 25 ) then
+			height = height + 14
+		end
+		
 		orig_AchievementButton_Expand(self, height, ...)
 
 		-- Increase description size
@@ -61,18 +62,16 @@ function DA:Initialize()
 	-- Expandy
 	-- I'm not happy with this solution, but if I hook this I can only need to do an additional 4 lines of code
 	-- instead of having to rewrite the AchievementFrameAchievements_Update function
+	--[[
 	local orig_HybridScrollFrame_ExpandButton = HybridScrollFrame_ExpandButton
 	HybridScrollFrame_ExpandButton = function(self, offset, height, ...)
 		if( self == AchievementFrameAchievementsContainer ) then
-			offset = (offset / ACHIEVEMENTBUTTON_COLLAPSEDHEIGHT) * DEFAULT_FRAME_HEIGHT
-			
-			-- If the height is equaled to our *new* collapsed height, set it to the *default* height
-			-- If it's not, set it to the *real* frame height
 			height = height == DEFAULT_FRAME_HEIGHT and ACHIEVEMENTBUTTON_COLLAPSEDHEIGHT or height
 		end
-
+		
 		orig_HybridScrollFrame_ExpandButton(self, offset, height, ...)
 	end
+	]]
 	
 	-- Restore the original height
 	local orig_AchievementButton_Collapse = AchievementButton_Collapse
@@ -126,14 +125,13 @@ function DA:Initialize()
 	AchievementButton_DisplayObjectives = function(button, id, completed, ...)
 		-- Call the original one and save the height
 		local height = orig_AchievementButton_DisplayObjectives(button, id, completed, ...)
-		
 		local objectives = AchievementFrameAchievementsObjectives
 
 		-- Level 70 achievements where it has multiple for level 10/20/30/40/50/60
 		if( id and completed and GetPreviousAchievement(id) ) then
 			objectives:ClearAllPoints()
 			objectives:SetPoint("TOP", (-3 * TOTAL_MINI_ACHIEVEMENTS), -30 - button.description:GetStringHeight())
-		
+			
 		-- The rest, if we have a height set
 		elseif( objectives:GetHeight() > 0 ) then
 			-- Position progress achievements (Somebody order a knuckle sandwich)
@@ -159,7 +157,7 @@ function DA:Initialize()
 		elseif( button.reward:IsVisible() and math.floor(button.hiddenDescription:GetHeight()) > 20 ) then
 			height = height + 1
 		end
-		
+
 		-- Give the user a visual queue that the frame was clicked on, even if it doesn't resize
 		if( height == 0 ) then
 			getglobal(button:GetName() .. "Background"):SetTexCoord(0, 1, math.max(0, 1 - (button:GetHeight() / 256)), 1)
@@ -254,7 +252,7 @@ function DA:Initialize()
 	
 	-- Create two new achievement rows quickly so we don't have blank space due to our reduced size
 	local frame = AchievementFrameAchievementsContainer
-	for i=1, 1 do
+	for i=1, 2 do
 		local id = #(frame.buttons) + 1
 		local name = "AchievementFrameAchievementsContainerButton" .. id
 		local button = CreateFrame("Button", name, frame.scrollChild, "AchievementTemplate")
@@ -336,6 +334,30 @@ function DA:Initialize()
 		-- Get basics setup
 		frame:Collapse()
 	end
+	
+	-- Re-set the hybrid scroll info we our new stuff
+	local round = function (num) return math.floor(num + 0.5) end
+
+	local frame = AchievementFrameAchievementsContainer
+	local buttonHeight = frame.buttons[1]:GetHeight()
+	
+	frame.buttonHeight = round(buttonHeight)
+	
+	local numButtons = (frame:GetHeight() / buttonHeight) + 1
+	self.overflow = math.ceil(numButtons) - numButtons
+	numButtons = math.ceil(numButtons)
+	
+	local scrollChild = frame.scrollChild
+	scrollChild:SetWidth(frame:GetWidth())
+	scrollChild:SetHeight(numButtons * buttonHeight)
+
+	frame:SetVerticalScroll(0)
+	frame:UpdateScrollChildRect()
+	
+	local scrollBar = frame.scrollBar	
+	scrollBar:SetMinMaxValues(0, numButtons * buttonHeight)
+	scrollBar:SetValueStep(0.005)
+	scrollBar:SetValue(0)
 end
 
 local frame = CreateFrame("Frame")
