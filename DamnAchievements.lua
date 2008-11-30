@@ -3,14 +3,7 @@ local blankFunc = function() end
 
 local DEFAULT_FRAME_HEIGHT = 64
 local TOTAL_MINI_ACHIEVEMENTS = 0
-
---[[
-	Default scroll bar implementation
-	
-	If you scroll to the very bottom, and you expand an achievement it moves everything up
-	If you scroll to the very top and expand an achievement, it moves everything down
-	If you're not completely at the bottom, and you expand an achievement it moves everything down
-]]
+local lastOffset = 0
 
 function DA:Initialize()
 	-- Removes the red border on completed achievements, it's obvious enough already they are completed
@@ -20,44 +13,91 @@ function DA:Initialize()
 	
 	ACHIEVEMENTBUTTON_COLLAPSEDHEIGHT = 64
 
+	local scrollOffset
 	local orig_AchievementButton_Expand = AchievementButton_Expand
 	AchievementButton_Expand = function(self, height, ...)
-		-- Progress bar achievements don't need any extra height if they are only a line of text + no reward
-		if( AchievementFrameProgressBar1 and AchievementFrameProgressBar1:IsVisible() and math.floor(self.description:GetStringHeight()) <= 10 ) then
-			height = DEFAULT_FRAME_HEIGHT
-			
-			if( self.reward:IsVisible() ) then
-				height = height + 25
-			end
-		
-		-- Mini achievements, hit Level 80, Mini-pet achievements, etc
-		elseif( AchievementFrameMiniAchievement1 and AchievementFrameMiniAchievement1:IsVisible() ) then
-		
-		-- Text achievements, Higher Learning, Well Read
-		elseif( AchievementFrameCriteria1 and AchievementFrameCriteria1:IsVisible() ) then
-			if( self.reward:IsVisible() ) then
-				height = height + 10
-			end
-		
-		-- Meta achievements, Glory of the Hero, etc
-		elseif( AchievementFrameMeta1 and AchievementFrameMeta1:IsVisible() ) then
-			local rows = math.ceil(AchievementFrameAchievementsObjectives:GetHeight() / ACHIEVEMENTBUTTON_CRITERIAROWHEIGHT)
-			rows = rows / 2
-			
-			height = height - AchievementFrameAchievementsObjectives:GetHeight()
-			height = math.floor(height + (rows * 28.5))
+		if( self.collapsed ) then
+			-- Progress bar achievements don't need any extra height if they are only a line of text + no reward
+			if( AchievementFrameProgressBar1 and AchievementFrameProgressBar1:IsVisible() and math.floor(self.description:GetStringHeight()) <= 10 ) then
+				height = DEFAULT_FRAME_HEIGHT
 
-		-- For achievements like The Immortal with 3 lines of text, no other criteria, and a reward
-		-- we only show two lines of text in this case, so we do a fake expand to make it show the rest when selected
-		elseif( math.floor(self.hiddenDescription:GetHeight()) >= 25 ) then
-			height = height + 14
+				if( self.reward:IsVisible() ) then
+					height = height + 25
+				end
+
+			-- Mini achievements, hit Level 80, Mini-pet achievements, etc
+			elseif( AchievementFrameMiniAchievement1 and AchievementFrameMiniAchievement1:IsVisible() ) then
+
+			-- Text achievements, Higher Learning, Well Read
+			elseif( AchievementFrameCriteria1 and AchievementFrameCriteria1:IsVisible() ) then
+				if( self.reward:IsVisible() ) then
+					height = height + 10
+				end
+
+			-- Meta achievements, Glory of the Hero, etc
+			elseif( AchievementFrameMeta1 and AchievementFrameMeta1:IsVisible() ) then
+				local rows = math.ceil(AchievementFrameAchievementsObjectives:GetHeight() / ACHIEVEMENTBUTTON_CRITERIAROWHEIGHT)
+				rows = rows / 2
+
+				height = height - AchievementFrameAchievementsObjectives:GetHeight()
+				height = math.floor(height + (rows * 28.5))
+
+			-- For achievements like The Immortal with 3 lines of text, no other criteria, and a reward
+			-- we only show two lines of text in this case, so we do a fake expand to make it show the rest when selected
+			elseif( math.floor(self.hiddenDescription:GetHeight()) >= 25 ) then
+				height = height + 14
+			end
+
+			--HybridScrollFrame_SetOffset(AchievementFrameAchievementsContainer, lastOffset)
 		end
 		
 		orig_AchievementButton_Expand(self, height, ...)
 
+		-- If an achievement is the last one visible, set the offset to it, this fixes the issue where a quest can expand
+		-- the screen and be unscrollable to view.
+		if( scrollOffset ) then
+			local lastVisible
+			for _, button in pairs(AchievementFrameAchievementsContainer.buttons) do
+				if( not button:IsVisible() ) then break end
+				lastVisible = button
+			end
+			
+			if( lastVisible == self ) then
+				HybridScrollFrame_SetOffset(AchievementFrameAchievementsContainer, scrollOffset)
+			end
+		end
+
 		-- Increase description size
 		self.description:SetHeight(0)
 	end
+	
+	local orig_HybridScrollFrame_SetOffset = HybridScrollFrame_SetOffset
+	HybridScrollFrame_SetOffset = function(self, offset, ...)
+		orig_HybridScrollFrame_SetOffset(self, offset, ...)
+		
+		if( self == AchievementFrameAchievementsContainer ) then
+			scrollOffset = offset
+		end
+	end
+
+	
+	-- Expand something: ExpandButton 0 84, GetOffset, Update 12 788 596
+	-- Scroll down: GetOffset, Update 12 788 576, SetOffset 335, OnValueChanged 335, OnMouseWheel -1
+	-- Expand something again: ExpandButton 704 84.21, GetOffset, Update 12 788 596.21
+	-- Collapse: CollapseButton,  GetOffset SetOffset 315, OnValueChanged 315, Update 12 768 576, CollapseButton
+	-- Expand again: ExpandButton 704 84.21, GetOffset, SetOffset, OnValueChanged 315, GetOffset, Update 12 788 616, SetOffset 335, OnValueChanged 335, Update 12 788 596
+
+
+	--[[
+	local orig_HybridScrollFrame_SetOffset = HybridScrollFrame_SetOffset
+	HybridScrollFrame_SetOffset = function(self, offset)
+		if( self == AchievementFrameAchievementsContainer ) then
+			lastOffset = offset
+		end
+		
+		orig_HybridScrollFrame_SetOffset(self, offset)
+	end
+	]]
 	
 	-- Expandy
 	-- I'm not happy with this solution, but if I hook this I can only need to do an additional 4 lines of code
@@ -81,7 +121,7 @@ function DA:Initialize()
 		-- Resize the container to default
 		self:SetHeight(DEFAULT_FRAME_HEIGHT)
 	end
-			
+	
 	-- Our custom changes things
 	local orig_AchievementButton_DisplayAchievement = AchievementButton_DisplayAchievement
 	AchievementButton_DisplayAchievement = function(button, category, achievement, selectionID, ...)
