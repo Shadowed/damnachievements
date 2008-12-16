@@ -4,6 +4,7 @@ local blankFunc = function() end
 local DEFAULT_FRAME_HEIGHT = 64
 local TOTAL_MINI_ACHIEVEMENTS = 0
 local lastOffset = 0
+local isScrolledFull
 
 function DA:Initialize()
 	-- Removes the red border on completed achievements, it's obvious enough already they are completed
@@ -47,8 +48,6 @@ function DA:Initialize()
 			elseif( math.floor(self.hiddenDescription:GetHeight()) >= 25 ) then
 				height = height + 14
 			end
-
-			--HybridScrollFrame_SetOffset(AchievementFrameAchievementsContainer, lastOffset)
 		end
 		
 		orig_AchievementButton_Expand(self, height, ...)
@@ -56,6 +55,11 @@ function DA:Initialize()
 		-- If an achievement is the last one visible, set the offset to it, this fixes the issue where a quest can expand
 		-- the screen and be unscrollable to view.
 		if( scrollOffset ) then
+			if( isScrolledFull ) then
+				isScrolledFull = nil
+				return
+			end
+		
 			local lastVisible
 			for _, button in pairs(AchievementFrameAchievementsContainer.buttons) do
 				if( not button:IsVisible() ) then break end
@@ -64,6 +68,7 @@ function DA:Initialize()
 			
 			if( lastVisible == self ) then
 				HybridScrollFrame_SetOffset(AchievementFrameAchievementsContainer, scrollOffset)
+				scrollOffset = nil
 			end
 		end
 
@@ -71,6 +76,7 @@ function DA:Initialize()
 		self.description:SetHeight(0)
 	end
 	
+	-- To fix achievements not correctly being scrolled
 	local orig_HybridScrollFrame_SetOffset = HybridScrollFrame_SetOffset
 	HybridScrollFrame_SetOffset = function(self, offset, ...)
 		orig_HybridScrollFrame_SetOffset(self, offset, ...)
@@ -79,7 +85,22 @@ function DA:Initialize()
 			scrollOffset = offset
 		end
 	end
-
+	
+	-- If we scrolled all the way down, when we next call _Expand we will block the offset reset, meaning it won't mess up everything anymore
+	local orig_ScrollDisable = AchievementFrameAchievementsContainer.scrollDown.Disable
+	AchievementFrameAchievementsContainer.scrollDown.Disable = function(...)
+		isScrolledFull = true
+		
+		return orig_ScrollDisable(...)
+	end
+	
+	--[[
+		Testing bugged scroll at bottom in dungeons/raids
+		
+		No bug: GetOffset, Update 17 1349 821, SetOffset 556.25, OnValueChanged 556.25, OnMouseWheel 1
+		Bug: GetOffset, GetOffset, Update 17 1349 1067, SetOffset 896, Update 17 1349 821, SetOffset 556, OnValueChanged 556, OnMouseWheel 1
+	
+	]]
 	
 	-- Expand something: ExpandButton 0 84, GetOffset, Update 12 788 596
 	-- Scroll down: GetOffset, Update 12 788 576, SetOffset 335, OnValueChanged 335, OnMouseWheel -1
