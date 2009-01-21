@@ -19,6 +19,11 @@ function DA:Initialize()
 	
 	local orig_AchievementButton_Expand = AchievementButton_Expand
 	AchievementButton_Expand = function(self, height, ...)
+		-- Not a Blizzard button, so return it quickly
+		if( not self.isBlizzardButton ) then
+			return orig_AchievementButton_Expand(self, height, ...)
+		end
+		
 		if( self.collapsed ) then
 			-- Progress bar achievements don't need any extra height if they are only a line of text + no reward
 			if( AchievementFrameProgressBar1 and AchievementFrameProgressBar1:IsVisible() and math.floor(self.description:GetStringHeight()) <= 10 ) then
@@ -144,7 +149,9 @@ function DA:Initialize()
 		orig_AchievementButton_Collapse(self)
 		
 		-- Resize the container to default
-		self:SetHeight(DEFAULT_FRAME_HEIGHT)
+		if( self.isBlizzardButton ) then
+			self:SetHeight(DEFAULT_FRAME_HEIGHT)
+		end
 	end
 	
 	-- Our custom changes things
@@ -152,6 +159,11 @@ function DA:Initialize()
 	AchievementButton_DisplayAchievement = function(button, category, achievement, selectionID, ...)
 		-- Call original + save results
 		local result = orig_AchievementButton_DisplayAchievement(button, category, achievement, selectionID, ...)
+		
+		-- Not a Blizzard button, so return it quickly
+		if( not button.isBlizzardButton ) then
+			return result
+		end
 		
 		-- Show the check button if it's not completed, or if it was tracked but it's now completed
 		-- (So they can uncheck it of course)
@@ -191,6 +203,11 @@ function DA:Initialize()
 		-- Call the original one and save the height
 		local height = orig_AchievementButton_DisplayObjectives(button, id, completed, ...)
 		local objectives = AchievementFrameAchievementsObjectives
+
+		-- Custom button that isn't default Blizzard, don't modify it (at all)
+		if( not self.isBlizzardButton ) then
+			return height
+		end
 
 		-- Level 70 achievements where it has multiple for level 10/20/30/40/50/60
 		if( id and completed and GetPreviousAchievement(id) ) then
@@ -263,6 +280,11 @@ function DA:Initialize()
 	AchievementObjectives_DisplayProgressiveAchievement = function(objectives, id)
 		orig_AchievementObjectives_DisplayProgressiveAchievement(objectives, id)
 		
+		-- Custom button that isn't default Blizzard, don't modify it (at all)
+		if( not self.isBlizzardButton ) then
+			return
+		end
+		
 		local id = 0
 		while( true ) do
 			id = id + 1
@@ -283,7 +305,7 @@ function DA:Initialize()
 	
 	-- Annd restore it once we leave
 	local function OnLeave(self)
-		if( not MouseIsOver(self) ) then
+		if( self.isBlizzardButton and not MouseIsOver(self) ) then
 			if( not self.selected ) then
 				self:SetBackdropBorderColor(0.5, 0.5, 0.5, 1.0)
 			else
@@ -294,7 +316,7 @@ function DA:Initialize()
 	
 	-- If we mouse over a selected frame, reset the border so you can see that you mouse overed it
 	local function OnEnter(self)
-		if( self.selected ) then
+		if( self.isBlizzardButton and self.selected ) then
 			self:SetBackdropBorderColor(0.5, 0.5, 0.5, 1.0)
 		end
 	end	
@@ -336,13 +358,14 @@ function DA:Initialize()
 		button:SetPoint("TOPLEFT", frame.buttons[id - 1], "BOTTOMLEFT", 0, -2)
 		table.insert(frame.buttons, button)
 	end
-		
-	-- Update all the buttons
-	for _, frame in pairs(frame.buttons) do
+	
+	-- Make the button all fancy
+	local function updateButton(frame)
 		-- Re-set the API calls so it uses our new versions
 		frame.Collapse = AchievementButton_Collapse
 		frame.Expand = AchievementButton_Expand
-
+		frame.isBlizzardButton = true
+		
 		-- Hook OnEnter/OnLeave for our color change
 		frame:HookScript("OnEnter", OnEnter)
 		frame:HookScript("OnLeave", OnLeave)
@@ -411,11 +434,30 @@ function DA:Initialize()
 		check:SetWidth(20)
 		check:SetHeight(20)
 		check:SetHitRectInsets(-5, -5, -5, -5)
+		check:SetChecked(false)
 
 		frame.customCheck = check
 
 		-- Get basics setup
 		frame:Collapse()
+	end
+	
+	--[[
+	local orig_HybridScrollFrame_CreateButtons = HybridScrollFrame_CreateButtons
+	HybridScrollFrame_CreateButtons = function(self, buttonTemplate, ...)
+		orig_HybridScrollFrame_CreateButtons(self, buttonTemplate, ...)
+
+		if( buttonTemplate == "AchievementTemplate" ) then
+			for _, frame in pairs(self.buttons) do
+				updateButton(frame)
+			end
+		end
+	end
+	]]
+
+	-- Update all the buttons
+	for _, frame in pairs(frame.buttons) do
+		updateButton(frame)
 	end
 	
 	-- Re-set the hybrid scroll info we our new stuff
