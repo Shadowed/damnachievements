@@ -15,6 +15,8 @@ function DA:Initialize()
 	ACHIEVEMENTBUTTON_COLLAPSEDHEIGHT = 64
 
 	local scrollOffset
+	local isFixedScroll
+	
 	local orig_AchievementButton_Expand = AchievementButton_Expand
 	AchievementButton_Expand = function(self, height, ...)
 		if( self.collapsed ) then
@@ -67,8 +69,11 @@ function DA:Initialize()
 			end
 			
 			if( lastVisible == self ) then
-				HybridScrollFrame_SetOffset(AchievementFrameAchievementsContainer, scrollOffset)
+				-- If we don't do this, we stack overflow
+				local temp = scrollOffset
 				scrollOffset = nil
+				
+				HybridScrollFrame_SetOffset(AchievementFrameAchievementsContainer, temp)
 			end
 		end
 
@@ -90,7 +95,6 @@ function DA:Initialize()
 	local orig_ScrollDisable = AchievementFrameAchievementsContainer.scrollDown.Disable
 	AchievementFrameAchievementsContainer.scrollDown.Disable = function(...)
 		isScrolledFull = true
-		
 		return orig_ScrollDisable(...)
 	end
 	
@@ -207,8 +211,8 @@ function DA:Initialize()
 							
 			-- Position pure text achievements (The Keymaster)
 			else
-				objectives:ClearAllPoints()
-				objectives:SetPoint("TOPLEFT", button, "TOPLEFT", 60, -35 - (button.description:GetStringHeight()))
+				--objectives:ClearAllPoints()
+				--objectives:SetPoint("TOPLEFT", button, "TOPLEFT", 60, -35 - (button.description:GetStringHeight()))
 			end
 
 			-- For some odd reason, we have to set the width here or it bugs out
@@ -294,23 +298,35 @@ function DA:Initialize()
 			self:SetBackdropBorderColor(0.5, 0.5, 0.5, 1.0)
 		end
 	end	
-
-		
-	-- Ripped out of the achievement UI, but modified for the smaller shield size
-	-- Clever little solution from Blizzard to center text
-	local function SetText(self, text)
-		getmetatable(self).__index.SetText(self, text)
-		local width = self:GetStringWidth()
-
-		-- Round the width, GetStringWidth returns a float.
-		width = math.floor(width * 10 ^ 0 + 0.5) / 10 ^ 0
-		if( math.fmod(width, 2) == 0 ) then
-			self:SetPoint("TOPLEFT", "$parentIcon", 0, -15)
-		else
-			self:SetPoint("TOPLEFT", "$parentIcon", -1, -15)
-		end
-	end
 	
+	local orig_AchievementShield_SetPoints = AchievementShield_SetPoints
+	AchievementShield_SetPoints = function(points, pointsString, normalFont, smallFont, ...)
+		if( pointsString.isDAManaged ) then
+			if( points == 0 ) then
+				pointsString:SetText("")
+				return
+			end
+			
+			pointsString:SetText(points)
+
+			-- Ripped out of the Blizzard achievement UI, keeps the achievement points centered on the shield
+			local width = pointsString:GetStringWidth()
+
+			-- Round the width, GetStringWidth returns a float.
+			width = math.floor(width * 10 ^ 0 + 0.5) / 10 ^ 0
+			if( points == 10 ) then
+				pointsString:SetPoint("TOPLEFT", pointsString:GetParent().icon, 7, -15)
+			elseif( math.fmod(width, 2) == 0 ) then
+				pointsString:SetPoint("TOPLEFT", pointsString:GetParent().icon, 8, -15)
+			else
+				pointsString:SetPoint("TOPLEFT", pointsString:GetParent().icon, 8, -15)
+			end
+			return
+		end
+		
+		return orig_AchievementShield_SetPoints(points, pointsString, normalFont, smallFont, ...)
+	end
+			
 	-- Create two new achievement rows quickly so we don't have blank space due to our reduced size
 	local frame = AchievementFrameAchievementsContainer
 	for i=1, 2 do
@@ -326,11 +342,10 @@ function DA:Initialize()
 		-- Re-set the API calls so it uses our new versions
 		frame.Collapse = AchievementButton_Collapse
 		frame.Expand = AchievementButton_Expand
-		frame.shield.points.SetText = SetText
-		
+
 		-- Hook OnEnter/OnLeave for our color change
 		frame:HookScript("OnEnter", OnEnter)
-		frame:HookScript("OnLEave", OnLeave)
+		frame:HookScript("OnLeave", OnLeave)
 
 		-- Reduce shield size
 		frame.shield:SetWidth(50)
@@ -342,7 +357,14 @@ function DA:Initialize()
 		frame.shield.points:ClearAllPoints()
 		frame.shield.points:SetFont((frame.shield.points:GetFont()), 14)
 		frame.shield.points:SetText(frame.shield.points:GetText())
+		frame.shield.points.isDAManaged = true
 		
+		-- Move the plus/minus ("Is this achievement expanded") icon
+		frame.plusMinus:ClearAllPoints()
+		frame.plusMinus:SetPoint("TOPLEFT", 63, -7)
+		frame.plusMinus:SetHeight(14)
+		frame.plusMinus:SetWidth(14)
+				
 		-- Reduce icon size
 		frame.icon:SetHeight(54)
 		frame.icon:SetWidth(54)
@@ -385,7 +407,7 @@ function DA:Initialize()
 		local check =  CreateFrame("CheckButton", frame:GetName() .. "CustomCheck", frame, "AchievementCheckButtonTemplate")
 		getglobal(check:GetName() .. "Text"):Hide()
 
-		check:SetPoint("TOPLEFT", frame, "TOPLEFT", 70, -3)
+		check:SetPoint("TOPLEFT", frame, "TOPLEFT", 75, -3)
 		check:SetWidth(20)
 		check:SetHeight(20)
 		check:SetHitRectInsets(-5, -5, -5, -5)
