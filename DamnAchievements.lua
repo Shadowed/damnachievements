@@ -20,7 +20,7 @@ function DA:Initialize()
 	local orig_AchievementButton_Expand = AchievementButton_Expand
 	AchievementButton_Expand = function(self, height, ...)
 		-- Not a Blizzard button, so return it quickly
-		if( not self.isBlizzardButton ) then
+		if( not self.isManagedButton ) then
 			return orig_AchievementButton_Expand(self, height, ...)
 		end
 		
@@ -149,7 +149,7 @@ function DA:Initialize()
 		orig_AchievementButton_Collapse(self)
 		
 		-- Resize the container to default
-		if( self.isBlizzardButton ) then
+		if( self.isManagedButton ) then
 			self:SetHeight(DEFAULT_FRAME_HEIGHT)
 		end
 	end
@@ -161,10 +161,10 @@ function DA:Initialize()
 		local result = orig_AchievementButton_DisplayAchievement(button, category, achievement, selectionID, ...)
 		
 		-- Not a Blizzard button, so return it quickly
-		if( not button.isBlizzardButton ) then
+		if( not button.isManagedButton ) then
 			return result
 		end
-		
+				
 		-- Show the check button if it's not completed, or if it was tracked but it's now completed
 		-- (So they can uncheck it of course)
 		if( not button.completed or button.id == GetTrackedAchievement() ) then
@@ -205,10 +205,10 @@ function DA:Initialize()
 		local objectives = AchievementFrameAchievementsObjectives
 
 		-- Custom button that isn't default Blizzard, don't modify it (at all)
-		if( not self.isBlizzardButton ) then
+		if( not button.isManagedButton ) then
 			return height
 		end
-
+		
 		-- Level 70 achievements where it has multiple for level 10/20/30/40/50/60
 		if( id and completed and GetPreviousAchievement(id) ) then
 			objectives:ClearAllPoints()
@@ -220,16 +220,21 @@ function DA:Initialize()
 			if( AchievementFrameProgressBar1 and AchievementFrameProgressBar1:IsVisible() ) then
 				objectives:ClearAllPoints()
 				objectives:SetPoint("CENTER", button, "CENTER", 0, -(button.description:GetStringHeight()))
-							
+
 			-- Position achievements for achievements (Hallowed Be Thy Name)
 			elseif( AchievementFrameMeta1 and AchievementFrameMeta1:IsVisible() ) then
 				objectives:ClearAllPoints()
 				objectives:SetPoint("TOPLEFT", button, "TOPLEFT", 60, -25 - (button.description:GetStringHeight()))
-							
+			
+			-- Position a single text achievement (Crashin' Thrashin' Racer)
+			elseif( AchievementFrameCriteria1 and AchievementFrameCriteria1:IsVisible() and AchievementFrameCriteria2 and not AchievementFrameCriteria2:IsVisible() ) then
+				objectives:ClearAllPoints()
+				objectives:SetPoint("TOPLEFT", button, "TOPLEFT", 150, -35 - (button.description:GetStringHeight()))
+			
 			-- Position pure text achievements (The Keymaster)
-			else
-				--objectives:ClearAllPoints()
-				--objectives:SetPoint("TOPLEFT", button, "TOPLEFT", 60, -35 - (button.description:GetStringHeight()))
+			elseif( AchievementFrameCriteria1 and AchievementFrameCriteria1:IsVisible() ) then
+				objectives:ClearAllPoints()
+				objectives:SetPoint("TOPLEFT", button, "TOPLEFT", 60, -35 - (button.description:GetStringHeight()))
 			end
 
 			-- For some odd reason, we have to set the width here or it bugs out
@@ -281,7 +286,7 @@ function DA:Initialize()
 		orig_AchievementObjectives_DisplayProgressiveAchievement(objectives, id)
 		
 		-- Custom button that isn't default Blizzard, don't modify it (at all)
-		if( not self.isBlizzardButton ) then
+		if( not self.isManagedButton ) then
 			return
 		end
 		
@@ -305,7 +310,7 @@ function DA:Initialize()
 	
 	-- Annd restore it once we leave
 	local function OnLeave(self)
-		if( self.isBlizzardButton and not MouseIsOver(self) ) then
+		if( self.isManagedButton and not MouseIsOver(self) ) then
 			if( not self.selected ) then
 				self:SetBackdropBorderColor(0.5, 0.5, 0.5, 1.0)
 			else
@@ -316,7 +321,7 @@ function DA:Initialize()
 	
 	-- If we mouse over a selected frame, reset the border so you can see that you mouse overed it
 	local function OnEnter(self)
-		if( self.isBlizzardButton and self.selected ) then
+		if( self.isManagedButton and self.selected ) then
 			self:SetBackdropBorderColor(0.5, 0.5, 0.5, 1.0)
 		end
 	end	
@@ -336,7 +341,9 @@ function DA:Initialize()
 
 			-- Round the width, GetStringWidth returns a float.
 			width = math.floor(width * 10 ^ 0 + 0.5) / 10 ^ 0
-			if( points == 10 ) then
+			if( points >= 100 ) then
+				pointsString:SetPoint("TOPLEFT", pointsString:GetParent().icon, 6, -15)
+			elseif( points == 10 ) then
 				pointsString:SetPoint("TOPLEFT", pointsString:GetParent().icon, 7, -15)
 			elseif( math.fmod(width, 2) == 0 ) then
 				pointsString:SetPoint("TOPLEFT", pointsString:GetParent().icon, 8, -15)
@@ -350,21 +357,27 @@ function DA:Initialize()
 	end
 			
 	-- Create two new achievement rows quickly so we don't have blank space due to our reduced size
-	local frame = AchievementFrameAchievementsContainer
-	for i=1, 2 do
-		local id = #(frame.buttons) + 1
-		local name = "AchievementFrameAchievementsContainerButton" .. id
-		local button = CreateFrame("Button", name, frame.scrollChild, "AchievementTemplate")
-		button:SetPoint("TOPLEFT", frame.buttons[id - 1], "BOTTOMLEFT", 0, -2)
-		table.insert(frame.buttons, button)
+	local function createButtons(frame)
+		for i=1, 2 do
+			local id = #(frame.buttons) + 1
+			local name = frame:GetName() .. "Button" .. id
+			local button = CreateFrame("Button", name, frame.scrollChild, "AchievementTemplate")
+			button:SetPoint("TOPLEFT", frame.buttons[id - 1], "BOTTOMLEFT", 0, -2)
+			table.insert(frame.buttons, button)
+		end
 	end
 	
+	-- Redirect the check from the default to our custom always shown one
+	local function redirectChecked(self, checked)
+		self:GetParent().customCheck:SetChecked(checked)
+	end
+
 	-- Make the button all fancy
 	local function updateButton(frame)
 		-- Re-set the API calls so it uses our new versions
 		frame.Collapse = AchievementButton_Collapse
 		frame.Expand = AchievementButton_Expand
-		frame.isBlizzardButton = true
+		frame.isManagedButton = true
 		
 		-- Hook OnEnter/OnLeave for our color change
 		frame:HookScript("OnEnter", OnEnter)
@@ -435,54 +448,63 @@ function DA:Initialize()
 		check:SetHeight(20)
 		check:SetHitRectInsets(-5, -5, -5, -5)
 		check:SetChecked(false)
-
+		
 		frame.customCheck = check
-
+		frame.tracked.SetChecked = redirectChecked
+		
 		-- Get basics setup
 		frame:Collapse()
 	end
 	
-	--[[
+	-- Re-set the hybrid scroll info we our new stuff
+	local round = function (num) return math.floor(num + 0.5) end
+	local function updateScrollFrame(frame)
+		local buttonHeight = frame.buttons[1]:GetHeight()
+
+		frame.buttonHeight = round(buttonHeight)
+
+		local numButtons = (frame:GetHeight() / buttonHeight) + 1
+		self.overflow = math.ceil(numButtons) - numButtons
+		numButtons = math.ceil(numButtons)
+
+		local scrollChild = frame.scrollChild
+		scrollChild:SetWidth(frame:GetWidth())
+		scrollChild:SetHeight(numButtons * buttonHeight)
+
+		frame:SetVerticalScroll(0)
+		frame:UpdateScrollChildRect()
+
+		local scrollBar = frame.scrollBar	
+		scrollBar:SetMinMaxValues(0, numButtons * buttonHeight)
+		scrollBar:SetValueStep(0.005)
+		scrollBar:SetValue(0)
+	end
+
+	-- Setup so we manage the Blizzard frames
+	createButtons(AchievementFrameAchievementsContainer)
+
+	-- Update all the buttons
+	for _, frame in pairs(AchievementFrameAchievementsContainer.buttons) do
+		updateButton(frame)
+	end
+
+	updateScrollFrame(AchievementFrameAchievementsContainer)
+
+	-- Hook and setup any new achievements created so they look all nice and fany
 	local orig_HybridScrollFrame_CreateButtons = HybridScrollFrame_CreateButtons
 	HybridScrollFrame_CreateButtons = function(self, buttonTemplate, ...)
 		orig_HybridScrollFrame_CreateButtons(self, buttonTemplate, ...)
 
 		if( buttonTemplate == "AchievementTemplate" ) then
+			createButtons(self)
+			
 			for _, frame in pairs(self.buttons) do
 				updateButton(frame)
 			end
+		
+			updateScrollFrame(self)
 		end
 	end
-	]]
-
-	-- Update all the buttons
-	for _, frame in pairs(frame.buttons) do
-		updateButton(frame)
-	end
-	
-	-- Re-set the hybrid scroll info we our new stuff
-	local round = function (num) return math.floor(num + 0.5) end
-
-	local frame = AchievementFrameAchievementsContainer
-	local buttonHeight = frame.buttons[1]:GetHeight()
-	
-	frame.buttonHeight = round(buttonHeight)
-	
-	local numButtons = (frame:GetHeight() / buttonHeight) + 1
-	self.overflow = math.ceil(numButtons) - numButtons
-	numButtons = math.ceil(numButtons)
-	
-	local scrollChild = frame.scrollChild
-	scrollChild:SetWidth(frame:GetWidth())
-	scrollChild:SetHeight(numButtons * buttonHeight)
-
-	frame:SetVerticalScroll(0)
-	frame:UpdateScrollChildRect()
-	
-	local scrollBar = frame.scrollBar	
-	scrollBar:SetMinMaxValues(0, numButtons * buttonHeight)
-	scrollBar:SetValueStep(0.005)
-	scrollBar:SetValue(0)
 end
 
 local frame = CreateFrame("Frame")
