@@ -167,8 +167,8 @@ function DA:Initialize()
 				
 		-- Show the check button if it's not completed, or if it was tracked but it's now completed
 		-- (So they can uncheck it of course)
-		if( not button.completed or button.id == GetTrackedAchievement() ) then
-			button.customCheck:SetChecked((button.id == GetTrackedAchievement()))
+		if( not button.completed or IsTrackedAchievement(button.id) ) then
+			button.customCheck:SetChecked(IsTrackedAchievement(button.id))
 			button.customCheck:Show()
 		else
 			button.customCheck:Hide()
