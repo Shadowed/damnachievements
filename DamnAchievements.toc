@@ -1,4 +1,4 @@
-## Interface: 30000
+## Interface: 30100
 ## Title: Damn Achievements
 ## Notes: Cleans up the achievement UI
 ## Author: Mayen
